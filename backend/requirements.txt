@@ -1,6 +1,5 @@
-fastapi
-uvicorn
-groq
 langgraph
 langchain
+langchain-groq
+groq
 python-dotenv
