@@ -3,3 +3,10 @@ langchain
 langchain-groq
 groq
 python-dotenv
+chromadb 
+langchain-community 
+langchain-openai
+requests
+trafilatura
+beautifulsoup4
+
