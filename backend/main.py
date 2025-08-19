@@ -49,42 +49,85 @@ def try_parse_json(text: str) -> Optional[Dict[str, Any]]:
 def append_log(state: OrchestratorState, line: str) -> None:
     state.setdefault("logs", []).append(line)
 
+def safe_call_planner(llm, system, user, retries=2):
+    for _ in range(retries):
+        out = call_llm(llm, system, user)
+        data = try_parse_json(out)
+        if data and all(k in data for k in ["timeline", "workstreams", "risks", "metrics"]):
+            return data
+        # tighten instructions for retry
+        user += "\n\nREMINDER: You must include all required fields with at least 3+ items each."
+    return None
+
 # ---------- Nodes ----------
 
 def planner_node(state: OrchestratorState) -> OrchestratorState:
     llm = state["_llm"]
-    append_log(state, "Planner: creating timeline, workstreams, and risks.")
-    system = (
-        "You are the Planner Agent. Create crisp, actionable project plans with milestones, "
-        "workstreams, deliverables, dependencies, and risks. Output valid JSON ONLY."
-    )
-    user = f"""
-Create a structured plan for the task below.
+    append_log(state, "Planner: creating detailed timeline, workstreams, and risks.")
 
+    system = (
+        "You are the Planner Agent. Your job is to produce **comprehensive project plans**.\n"
+        "Every plan MUST include:\n"
+        "- At least 3–5 workstreams (Research, Implementation, Validation, Communication, etc.).\n"
+        "- Each workstream must have multiple tasks, an owner role, and dependencies.\n"
+        "- A timeline with at least 4–6 milestones spread logically (e.g. by week or phase).\n"
+        "- At least 3 assumptions.\n"
+        "- At least 4 risks with impact + mitigation.\n"
+        "- At least 3 metrics of success.\n"
+        "\nOutput valid JSON ONLY. Do not include commentary."
+    )
+
+    user = f"""
 TASK: {state['task']}
 
-Return JSON with this shape:
+Return JSON with this shape (all fields required):
+
 {{
-  "objective": "...",
-  "assumptions": ["..."],
+  "objective": "string",
+  "assumptions": ["string", "string", ...],
   "timeline": [
-    {{"week": "W1", "milestones": ["..."], "deliverables": ["..."]}}
+    {{
+      "phase": "string",
+      "milestones": ["string", "string"],
+      "deliverables": ["string", "string"]
+    }}
   ],
   "workstreams": [
-    {{"name": "Research", "tasks": ["..."], "owner": "Role", "dependencies": []}}
+    {{
+      "name": "string",
+      "tasks": ["string", "string"],
+      "owner": "Role",
+      "dependencies": ["string", "string"]
+    }}
   ],
-  "risks": [{{"risk": "...", "impact": "low|medium|high", "mitigation": "..."}}],
-  "metrics": ["..."]
+  "risks": [
+    {{
+      "risk": "string",
+      "impact": "low|medium|high",
+      "mitigation": "string"
+    }}
+  ],
+  "metrics": ["string", "string"]
 }}
-Only JSON. No extra commentary.
 """
     out = call_llm(llm, system, user)
-    data = try_parse_json(out) or {
-        "objective": state["task"], "assumptions": [], "timeline": [],
-        "workstreams": [], "risks": [], "metrics": []
-    }
-    append_log(state, "Planner: plan drafted.")
+    data = safe_call_planner(llm, system, user) 
+
+
+    # Fallback: safe defaults if parsing fails
+    if not data:
+        data = {
+            "objective": state["task"],
+            "assumptions": ["TBD"],
+            "timeline": [],
+            "workstreams": [],
+            "risks": [],
+            "metrics": []
+        }
+
+    append_log(state, "Planner: detailed plan drafted.")
     return {"plan": data}
+
 
 # Import the web researcher
 from agent.research_web import researcher_web_node

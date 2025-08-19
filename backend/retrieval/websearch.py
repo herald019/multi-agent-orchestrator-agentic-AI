@@ -69,12 +69,20 @@ def fetch_url_text(url: str, timeout: int = 25) -> str:
     except Exception:
         return ""
 
+def rerank_results(results: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Rerank by Tavily score and length of extracted text.
+    Returns top_k results.
+    """
+    ranked = sorted(
+        results,
+        key=lambda r: (r.get("score", 0), len(r.get("text", ""))),
+        reverse=True
+    )
+    return ranked[:top_k]
+
 def web_research(query: str, k: int = 5) -> List[Dict[str, str]]:
-    """
-    High-level helper: search, then fetch each URL content.
-    Returns [{ 'title', 'url', 'snippet', 'text' }, ...]
-    """
-    results = tavily_search(query, max_results=k)
+    results = tavily_search(query, max_results=k*2)  # fetch more initially
     enriched = []
     for r in results:
         url = r["url"]
@@ -85,6 +93,7 @@ def web_research(query: str, k: int = 5) -> List[Dict[str, str]]:
             "snippet": r.get("content", ""),
             "text": text
         })
-        # small courtesy delay to be nice to sites
         time.sleep(0.7)
-    return enriched
+
+    # Apply reranking + keep top_k
+    return rerank_results(enriched, top_k=k)

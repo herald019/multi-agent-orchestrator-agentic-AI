@@ -27,6 +27,19 @@ def build_research_queries(task: str, plan: Dict[str, Any]) -> List[str]:
             seen.add(q)
     return uniq[:5]
 
+def summarize_source(llm: ChatGroq, source: Dict[str, str]) -> str:
+    """
+    Summarize a single source's text into ~5 sentences.
+    """
+    system = "You are a helpful assistant. Summarize the source text in 5 clear, factual sentences."
+    user = f"TITLE: {source['title']}\nURL: {source['url']}\nTEXT:\n{source['text'][:4000]}"
+    try:
+        summary = call_llm(llm, system, user)
+        return summary.strip()
+    except Exception:
+        return source['text'][:500]  # fallback
+
+
 def researcher_web_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Uses web search + fetch to gather real sources, then asks LLM to synthesize with citations.
@@ -44,13 +57,22 @@ def researcher_web_node(state: Dict[str, Any]) -> Dict[str, Any]:
     filtered = [s for s in sources if s.get("text")]
     filtered = filtered[:8]
 
-    # Build a compact context for the LLM
-    ctx_parts = []
+    # # Build a compact context for the LLM
+    # ctx_parts = []
+    # for i, s in enumerate(filtered, 1):
+    #     ctx_parts.append(
+    #         f"[{i}] TITLE: {s['title']}\nURL: {s['url']}\nEXTRACT:\n{s['text'][:1800]}\n"
+    #     )
+    # context_block = "\n\n".join(ctx_parts)
+    
+    # Summarize each source before feeding into context
+    summaries = []
     for i, s in enumerate(filtered, 1):
-        ctx_parts.append(
-            f"[{i}] TITLE: {s['title']}\nURL: {s['url']}\nEXTRACT:\n{s['text'][:1800]}\n"
+        summary = summarize_source(llm, s)
+        summaries.append(
+            f"[{i}] TITLE: {s['title']}\nURL: {s['url']}\nSUMMARY:\n{summary}\n"
         )
-    context_block = "\n\n".join(ctx_parts)
+    context_block = "\n\n".join(summaries)
 
     system = (
         "You are the Web Research Agent. Given a planning task and sources (with URLs), "
